@@ -1,7 +1,8 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, EndBehaviorType, AudioPlayerStatus, StreamType, createAudioPlayer, createAudioResource, getVoiceConnection, NoSubscriberBehavior } = require("@discordjs/voice");
+const { joinVoiceChannel, EndBehaviorType, AudioPlayerStatus, StreamType, createAudioPlayer, createAudioResource, getVoiceConnection, NoSubscriberBehavior, PlayerSubscription, AudioReceiveStream } = require("@discordjs/voice");
 const { OpusEncoder } = require( "@discordjs/opus" ); 
 const dotenv = require("dotenv");
+const AudioMixer = require('audio-mixer');
 const fs = require('fs');
 dotenv.config();
 
@@ -21,83 +22,64 @@ client.on("messageCreate", (message) => {
         channelId: voicechannel.id,
         guildId: message.guild.id,
         adapterCreator: message.guild.voiceAdapterCreator,
-        selfDeaf: false
+        selfDeaf: false,
+        selfMute: false
     });
     let connection = getVoiceConnection(message.guild.id);
-    let connectedUsers = [];
+    let receiver = connection.receiver;
 
-    voicechannel.members.forEach((member) => {
-        if(member.user.bot) return;
-        connectedUsers.push(member.id);
+    const encoder = new OpusEncoder(48000, 2);
+    const mixer = new AudioMixer.Mixer({channels: 2, bitDepth: 16, sampleRate: 48000, clearInterval: 250});
+
+    receiver.speaking.on("start", (user) => { playStream(user) });
+
+    let opusStream = new AudioReceiveStream({
+        end: EndBehaviorType.Manual
     });
+    // mixer.pipe(opusStream);
 
-    client.on('voiceStateUpdate', (oldMember, newMember) => {
-        console.log(oldMember, newMember)
-        let newUserChannel = newMember.channel?.id;
-        let oldUserChannel = oldMember.channel?.id;
+    const audioPlayer = createAudioPlayer();
+    const resource = createAudioResource(opusStream, { inputType: StreamType.Opus });
+    audioPlayer.play(resource);
+    connection.subscribe(audioPlayer);
 
-        if(newMember.member.user.bot) return;
-
-        if(newUserChannel === voicechannel.id) {
-            if(connectedUsers.includes(newMember.id)) return;
-            connectedUsers.push(newMember.id);
-            listenAndRepeat(newMember.id);
-        } else {
-            connectedUsers = connectedUsers.filter(x => x != newMember.id);
-        }
+    audioPlayer.on(AudioPlayerStatus.Idle, () => {
+        console.log('a')
+        // audioPlayer.stop();
+        // opusStream.destroy();
     });
-
-    let talking;
-
-    setInterval(() => {
-        if(talking == null) {
-            let speaking = Array.from(connection.receiver.speaking.users)?.toString().split(',')[0];
-            talking = speaking == "" ? null : speaking;
-            if(talking != null) initListeners();
-        }
-    }, 50);
-
-    function initListeners() {
-        connectedUsers.forEach(connectedUser => {
-            listenAndRepeat(connectedUser);
-        });
-    }
-
-    initListeners();
-
-    function listenAndRepeat(userId) {
-        if(talking != userId) {
-            return;
-        } else {
-            talking = userId;
-            const opusStream = connection.receiver.subscribe(userId, {
-                end: {
-                    behavior: EndBehaviorType.Manual
-                },
-            });
     
-            const audioPlayer = createAudioPlayer();
-            connection.subscribe(audioPlayer);
-            const resource = createAudioResource(opusStream, { inputType: StreamType.Opus });
-            audioPlayer.play(resource);
-        
-            audioPlayer.on(AudioPlayerStatus.Idle, () => {
-                audioPlayer.stop();
-                opusStream.destroy();
-                setTimeout(() => {
-                    talking = null;
-                    if(!connectedUsers.includes(userId)) return;
-                    listenAndRepeat(userId);
-                }, 10);
-            });
+    connection.on('stateChange', (oldState, newState) => {
+        const oldNetworking = Reflect.get(oldState, 'networking');
+        const newNetworking = Reflect.get(newState, 'networking');
+      
+        const networkStateChangeHandler = (oldNetworkState, newNetworkState) => {
+          const newUdp = Reflect.get(newNetworkState, 'udp');
+          clearInterval(newUdp?.keepAliveInterval);
         }
-    }
+      
+        oldNetworking?.off('stateChange', networkStateChangeHandler);
+        newNetworking?.on('stateChange', networkStateChangeHandler);
+    });
 
-    let cnt = 0;
-    setInterval(() => {
-        cnt++;
-        console.log(connectedUsers, cnt);
-    }, 500);
+    function playStream(userId) {
+        const audioStream = receiver.subscribe(userId, { end: { behavior: EndBehaviorType.AfterSilence, duration: 200 } });
+        const input = mixer.input({ volume: 75 });
+        audioStream.pipe(opusStream)
+    
+        audioStream
+            .on("data", (chunk) => {
+                const buffer = encoder.decode(chunk);
+                input.write(buffer);
+            })
+            .on("error", (err) => {
+                console.log(err)
+            })
+            .on("end", () => {
+                audioStream.destroy();
+                mixer.removeInput(input);
+            });
+    }
 });
 
 client.login(process.env.TOKEN);
