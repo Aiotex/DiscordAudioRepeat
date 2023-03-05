@@ -1,0 +1,26 @@
+{
+  "name": "discordaudiorepeat",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jiron/DiscordAudioRepeat.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Jiron/DiscordAudioRepeat/issues"
+  },
+  "homepage": "https://github.com/Jiron/DiscordAudioRepeat#readme",
+  "dependencies": {
+    "@discordjs/opus": "^0.9.0",
+    "@discordjs/voice": "^0.14.0",
+    "discord.js": "^14.7.1",
+    "dotenv": "^16.0.3",
+    "tweetnacl": "^1.0.3"
+  }
+}
