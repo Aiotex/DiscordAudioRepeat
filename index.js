@@ -33,29 +33,16 @@ client.on("messageCreate", (message) => {
     const mixer = new AudioMixer.Mixer({channels: 2, bitDepth: 16, sampleRate: 48000, clearInterval: 250});
 
     receiver.speaking.on("start", (user) => { playStream(user) });
-
+  
+    // Audio player
     const audioPlayer = createAudioPlayer();
-    const resource = createAudioResource(mixer); // this line needs to be fixed
-    audioPlayer.play(resource);
+    const resource = createAudioResource(mixer, { inputType: StreamType.Raw, });
     connection.subscribe(audioPlayer);
-
-    audioPlayer.on(AudioPlayerStatus.Idle, () => {
-        console.log('player idle'); // gets fired instantly since the player doesn't work yet / the resource is not vaild
-        // audioPlayer.stop();
-    });
+    audioPlayer.play(resource);
     
-    // keeps player and receiver alive cause of a recent Discord update which makes the bot not work after 1 minute of inactivity in a voice channel
-    connection.on('stateChange', (oldState, newState) => {
-        const oldNetworking = Reflect.get(oldState, 'networking');
-        const newNetworking = Reflect.get(newState, 'networking');
-      
-        const networkStateChangeHandler = (oldNetworkState, newNetworkState) => {
-          const newUdp = Reflect.get(newNetworkState, 'udp');
-          clearInterval(newUdp?.keepAliveInterval);
-        }
-      
-        oldNetworking?.off('stateChange', networkStateChangeHandler);
-        newNetworking?.on('stateChange', networkStateChangeHandler);
+    audioPlayer.on(AudioPlayerStatus.Idle, () => {
+        console.log('player idle');
+        audioPlayer.stop();
     });
 
     function playStream(userId) {
